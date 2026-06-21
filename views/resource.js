@@ -210,9 +210,15 @@ function nextResId() {
 }
 
 
-// ── Display config (ตั้งเองได้) ──
-let SHOW_REQUEST_ID = false;  // true = โชว์คอลัมน์ Request ID, false = ซ่อน
-function setShowRequestId(v) { SHOW_REQUEST_ID = !!v; renderResource(); }
+// ── Display config — Request ID column toggle อยู่ในหน้า Settings ──
+// อ่านจาก settings (resource.showRequestId); มี override ชั่วคราวผ่าน setShowRequestId(true/false), null = กลับไปใช้ settings
+let _showIdOverride = null;
+function showRequestId() {
+  if(_showIdOverride !== null) return _showIdOverride;
+  const s = typeof loadSettings === 'function' ? loadSettings() : null;
+  return !!(s?.resource?.showRequestId);
+}
+function setShowRequestId(v) { _showIdOverride = (v===null ? null : !!v); renderResource(); }
 
 
 // ── Main render ──
@@ -228,7 +234,7 @@ let _resView = 'all';       // chip key (request tab)
 // เพิ่ม / ลบ / ซ่อน คอลัมน์ที่นี่ที่เดียว — ไม่ต้องแก้ <thead> ใน index.html
 function resColumns() {
   const C = [];
-  if(SHOW_REQUEST_ID) C.push({ key:'id', label:'ID', th:'padding-left:12px',
+  if(showRequestId()) C.push({ key:'id', label:'ID', th:'padding-left:12px',
     cell:r=>`<span style="font-family:monospace;font-size:11px;color:var(--text-3)">${esc(r.id)}</span>` });
   C.push(
     { key:'team',     label:'Resource Team', cell:r=>esc(r.resourceTeam) },
@@ -284,6 +290,10 @@ function ensureResChrome() {
     </div>
     <div id="res-view-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>`;
   view.insertBefore(wrap, view.firstChild);
+
+  // dropdown สถานะเดิมซ้ำกับ chips → ซ่อนทิ้ง (โค้ดใหม่ใช้ chips กรองสถานะแทน)
+  const fStatusSel = document.getElementById('res-f-status');
+  if(fStatusSel) fStatusSel.style.display = 'none';
 }
 
 
@@ -821,7 +831,37 @@ async function _doDeleteResource(id) {
 
 
 // ── Detail drawer ──
+// สร้าง drawer เองถ้า index.html ไม่มี (กันปุ่ม "จัดการ" กดแล้วเงียบ)
+function ensureDetailDrawer() {
+  if(document.getElementById('resource-detail-drawer')) return;
+  if(!document.getElementById('res-drawer-style')) {
+    const st = document.createElement('style');
+    st.id = 'res-drawer-style';
+    st.textContent = `
+      #res-drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s;z-index:1099}
+      #res-drawer-overlay.open{opacity:1;pointer-events:auto}
+      #resource-detail-drawer{position:fixed;top:0;right:0;height:100vh;width:440px;max-width:92vw;background:var(--surface,#fff);border-left:1px solid var(--border,#e5e7eb);box-shadow:-8px 0 24px rgba(0,0,0,.12);transform:translateX(100%);transition:transform .22s ease;z-index:1100;overflow:auto}
+      #resource-detail-drawer.open{transform:translateX(0)}`;
+    document.head.appendChild(st);
+  }
+  const ov = document.createElement('div');
+  ov.id = 'res-drawer-overlay';
+  ov.addEventListener('click', closeResDetail);
+  document.body.appendChild(ov);
+  const dr = document.createElement('div');
+  dr.id = 'resource-detail-drawer';
+  dr.innerHTML = `
+    <div style="padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)">
+      <span style="font-size:14px;font-weight:700">รายละเอียด</span>
+      <button class="btn-sm" onclick="closeResDetail()" style="font-size:16px">✕</button>
+    </div>
+    <div id="res-detail-body" style="padding:20px"></div>`;
+  document.body.appendChild(dr);
+}
+
+
 function openResDetail(id) {
+  ensureDetailDrawer();
   const r = loadResources().find(x=>x.id===id);
   if(!r) return;
   const role = currentRole();
@@ -878,8 +918,12 @@ function openResDetail(id) {
 
 
   document.getElementById('resource-detail-drawer').classList.add('open');
+  document.getElementById('res-drawer-overlay')?.classList.add('open');
 }
-function closeResDetail() { document.getElementById('resource-detail-drawer').classList.remove('open'); }
+function closeResDetail() {
+  document.getElementById('resource-detail-drawer')?.classList.remove('open');
+  document.getElementById('res-drawer-overlay')?.classList.remove('open');
+}
 
 
 // ── Export (CSV, role-scoped) ──
